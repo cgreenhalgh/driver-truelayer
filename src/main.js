@@ -253,8 +253,7 @@ function setSettings(settings) {
 
 async function save(datasourceid, data) {
   console.log('Saving TrueLayer event::', data);
-  const json = { data };
-  store.TSBlob.Write(datasourceid, json)
+  store.TSBlob.Write(datasourceid, data)
     .then((resp) => {
       console.log('Save got response ', resp);
     })
@@ -314,22 +313,33 @@ function refresh_balance() {
       console.log('[refresh_balance]');
 
       const balance = await DataAPIClient.getBalance(tokens.access_token, account_id);
-      save('truelayerUserBalance', balance);
+      save('truelayerUserBalance', balance.results[0]);
     });
 }
+const MAX_TRANSACTIONS = 50;
 
 function refresh_transactions() {
   getSettings()
     .then(async (settings) => {
       const { tokens, account_id, retrieve_from } = settings;
 
+      // limit to two weeks (default is 3 months)
+      if (!retrieve_from)
+        retrieve_from = new Date(new Date().getTime() - 1000*60*60*24*14).toISOString().substr(0,8)
       // save current datetime
-      const new_retrieve_from = new Date();
+      const new_retrieve_from = new Date().toISOString();
 
-      console.log('Refreshing transactions from: ' + retrieve_from);
-      const transactions = await DataAPIClient.getTransactions(tokens.access_token, account_id, retrieve_from);
-      save('truelayerUserTransactions', transactions);
-
+      console.log('Refreshing transactions from: ' + retrieve_from.substr(0,10) + ' - ' + new_retrieve_from.substr(0,10) );
+      // apparently wants YYYY-MM-DD
+      const transactions = await DataAPIClient.getTransactions(tokens.access_token, account_id, retrieve_from.substr(0,10), new_retrieve_from.substr(0,10));
+      console.log(`Got ${transactions.results.length} transactions since ${retrieve_from} (limit = ${MAX_TRANSACTIONS})`)
+      // reverse order
+      for (let ti=Math.min(transactions.results.length-1, MAX_TRANSACTIONS-1); ti>=0; ti--) {
+        let transaction = transactions.results[ti];
+        // TODO avoid re-adding the same things
+        save('truelayerUserTransactions', transaction);
+      }
+      
       // save datetime for next refresh
       settings.retrieve_from = new_retrieve_from;
       setSettings(settings);

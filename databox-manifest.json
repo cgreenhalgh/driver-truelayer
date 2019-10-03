@@ -1,7 +1,7 @@
 {
 	"manifest-version": 1,
 	"name": "driver-truelayer",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"description": "A simple Databox driver to stream truelayer data",
 	"author": "Kleomenis Katevas <k.katevas@imperial.ac.uk> ()",
 	"license": "MIT",
@@ -35,14 +35,12 @@
 		{
 			"data-source-type": "truelayerUserBalance",
 			"description": "TrueLayer user Balance data",
-			"store-type": "tsblob",
-			"schema": {}
+			"store-type": "ts/blob"
 		},
 		{
 			"data-source-type": "truelayerUserTransactions",
 			"description": "TrueLayer user Transactions data",
-			"store-type": "tsblob",
-			"schema": {}
+			"store-type": "ts/blob"
 		}
 	]
 }
