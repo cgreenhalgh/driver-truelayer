@@ -321,11 +321,11 @@ const MAX_TRANSACTIONS = 50;
 function refresh_transactions() {
   getSettings()
     .then(async (settings) => {
-      const { tokens, account_id, retrieve_from } = settings;
+      let { tokens, account_id, retrieve_from } = settings;
 
       // limit to two weeks (default is 3 months)
       if (!retrieve_from)
-        retrieve_from = new Date(new Date().getTime() - 1000*60*60*24*14).toISOString().substr(0,8)
+        retrieve_from = new Date(new Date().getTime() - 1000*60*60*24*14).toISOString().substr(0,10)
       // save current datetime
       const new_retrieve_from = new Date().toISOString();
 
