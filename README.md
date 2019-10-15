@@ -1,11 +1,16 @@
 # driver-truelayer
+
 A [DataBox](https://www.databoxproject.uk) driver to stream financial data from [TrueLayer](https://truelayer.com). TrueLayer supports a series of UK banks (soon to be expanded to more countries). At the moment it has only been tested with [Monzo bank](http://monzo.com).
 
 
 # Status
+
 This is work in progress but getting better ;-).
 
+See Issues, below.
+
 # Authentication
+
 If you wish to use this driver with your own TrueLayer account then:
 
 - Sign up in https://truelayer.com and log in.
@@ -29,12 +34,52 @@ These can then be accessed store-json API.
 
 See truelayer types for 
 [transactions](https://docs.truelayer.com/#retrieve-account-transactions)
+e.g.
+```
+{
+  "transaction_id": "03c333979b729315545816aaa365c33f",
+  "timestamp": "2018-03-06T00:00:00",
+  "description": "GOOGLE PLAY STORE",
+  "amount": -2.99,
+  "currency": "GBP",
+  "transaction_type": "DEBIT",
+  "transaction_category": "PURCHASE",
+  "transaction_classification": [
+     "Entertainment",
+     "Games"
+  ],
+  "merchant_name": "Google play",
+  "running_balance": {
+    "amount": 1238.60, 
+    "currency": "GBP"
+  },
+  "meta": {
+    "bank_transaction_id": "9882ks-00js",
+    "provider_transaction_category": "DEB"
+  }
+}
+```								    ```
 and
 [balances](https://docs.truelayer.com/#retrieve-account-balance)
+e.g. 
+```
+{
+  "currency": "GBP",
+  "available": 1161.2,
+  "current": 1161.2,
+  "overdraft": 1000,
+  "update_timestamp": "2017-02-07T17:33:30.001222Z"
+}
+```
 
 ## Issues
 
-- add value examples
+- handle invalid access token, e.g. after restart
+- handle future timezone?!
+- version datasource types
+
+- check it doesn't use credential sharing (deprecated), just 
+open banking and oauth
 
 - redirect URLs are hard-coded as https://127.0.0.1/... 
 so will only work from a local browser (not the app)

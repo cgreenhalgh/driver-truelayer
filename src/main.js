@@ -9,6 +9,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const nonce = require('nonce-generator');
 const fs = require('fs');
+const dns = require('dns');
 
 // TrueLayer
 const { AuthAPIClient, DataAPIClient } = require('truelayer-client');
@@ -38,8 +39,9 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 
 const token_refresh_interval = 30;  // in minutes
-const timer = setInterval(timer_callback, 1000 * 60);  // per minute
 let next_data_refresh = null;
+let latest_transaction_id = null;
+let latest_date = null;
 
 // Load page templates
 const ui_template = fs.readFileSync('src/views/ui.html', 'utf8');
@@ -201,21 +203,66 @@ driverSettings.StoreType = 'kv';
 
 store.RegisterDatasource(balance)
   .then(() => {
-    return store.RegisterDatasource(transactions);
+	console.log(`registered datasource ${balance.DataSourceID}`)
+	return store.RegisterDatasource(transactions);
   })
   .then(() => {
-    return store.RegisterDatasource(driverSettings);
+	console.log(`registered datasource ${transactions.DataSourceID}`)
+	return store.RegisterDatasource(driverSettings);
+  })
+  .then(() => {
+	console.log(`registered datasource ${driverSettings.DataSourceID}`)
+	return new Promise(function (resolve,reject) {
+		// ensure core-network permissions are in place
+		let lookup = function() {
+			dns.resolve('api.truelayer.com', function(err, records) {
+				if (err) {
+					console.log("DNS lookup failed; retrying...");
+					setTimeout(lookup, 1000);
+					return;
+				}
+				console.log("DNS ok (for api.truelayer.com)");
+				resolve();
+			})
+		}
+		lookup();
+	})
+  })
+  .then(() => {
+	  return store.TSBlob.Latest( transactions.DataSourceID )
+  })
+  .then((latest) => {
+	if (latest.length > 0) {
+		latest_transaction_id = latest[0].data.transaction_id
+		latest_date = new Date(latest[0].data.timestamp).toISOString().substr(0,10)
+		console.log(`latest transaction_id: ${latest_transaction_id}, date: ${latest_date} (timestamp: ${latest[0].data.timestamp})`)
+	} else {
+		console.log(`Note: no previous transactions found`)
+	}
+  })
+  .then(() => {
+	return getSettings()
+  })
+  .then((settings) => {
+	if (settings.client_id && settings.client_secret) {
+		client = new AuthAPIClient(settings);
+	} else {
+		console.log(`Note: client not created - missing id or secret`)
+	}
+	console.log(`driver running...`, settings)
+	const timer = setInterval(timer_callback, 1000 * 60);  // per minute
+	timer_callback()
   })
   .catch((err) => {
-    console.log('Error registering data source:' + err);
+    console.log('Error starting driver:' + err, err);
   });
 
-function getSettings() {
+async function getSettings() {
   const datasourceid = 'truelayerSettings';
   return new Promise((resolve, reject) => {
     store.KV.Read(datasourceid, 'settings')
       .then((settings) => {
-        console.log('[getSettings] read response = ', settings);
+        //console.log('[getSettings] read response = ', settings);
         if (Object.keys(settings).length === 0) {
           //return defaults
           const settings = TrueLayerDefaultSettings;
@@ -236,7 +283,7 @@ function getSettings() {
   });
 }
 
-function setSettings(settings) {
+async function setSettings(settings) {
   const datasourceid = 'truelayerSettings';
   return new Promise((resolve, reject) => {
     store.KV.Write(datasourceid, 'settings', settings)
@@ -253,7 +300,7 @@ function setSettings(settings) {
 
 async function save(datasourceid, data) {
   console.log('Saving TrueLayer event::', data);
-  store.TSBlob.Write(datasourceid, data)
+  return store.TSBlob.Write(datasourceid, data)
     .then((resp) => {
       console.log('Save got response ', resp);
     })
@@ -264,85 +311,102 @@ async function save(datasourceid, data) {
 
 // Will check token validity and if it is due to expire, it will refresh it
 async function validate_token() {
-  getSettings()
-    .then(async (settings) => {
-      const { tokens } = settings;
+	let settings = await getSettings()
+	const { tokens } = settings;
 
-      // check with current datetime
-      const now = new Date();
-      if (tokens.expiration_date < now) {
-        console.log('[refreshing token]');
-        const new_token = await client.refreshAccessToken(tokens.refresh_token)
-          .catch((error) => {
-            console.log('TrueLayer Error: ', error);
-            return Promise.reject(new Error(400));
-          });
-        settings.tokens = new_token;
-        settings.tokens.expiration_date = new Date().setMinutes(now.getMinutes() + token_refresh_interval);
-        await setSettings(settings);
-      }  // else, just continue
-    });
+	// check with current datetime
+	const now = new Date();
+	if (tokens.expiration_date < now) {
+ 		try {
+			console.log('[refreshing token]');
+        		const new_token = await client.refreshAccessToken(tokens.refresh_token)
+        		settings.tokens = new_token;
+        		settings.tokens.expiration_date = new Date().setMinutes(now.getMinutes() + token_refresh_interval);
+			await setSettings(settings);
+          	} catch(error) {
+	        	console.log('TrueLayer refresh token Error: ', error);
+	        	throw new Error(400);
+	        }
+	}
 }
 
 async function timer_callback() {
-  await validate_token();
-  getSettings()
-    .then((settings) => {
-      const { refresh_interval } = settings;
+	await validate_token();
+	let settings = getSettings()
+	const { refresh_interval } = settings;
 
-      // check with current datetime
-      const now = new Date();
-      if (next_data_refresh == null ||
-          next_data_refresh < now) {
+	// check with current datetime
+	const now = new Date();
+	if (next_data_refresh == null ||
+		next_data_refresh < now) {
 
-        // refresh
-        refresh_balance();
-        refresh_transactions();
-
-        // plan next refresh
-        next_data_refresh = new Date().setMinutes(now.getMinutes() + refresh_interval);
-      }
-    });
+        	// refresh
+        	try {
+			await refresh_balance();
+ 		} catch (err) {
+			console.log(`error refreshing balance: ${err}`, err)
+		}
+		try {
+			await refresh_transactions();
+		} catch (err) {
+			console.log(`error refreshing transactions: ${err}`, err)
+		}
+        	// plan next refresh
+		next_data_refresh = new Date().setMinutes(now.getMinutes() + refresh_interval);
+	}
 }
 
-function refresh_balance() {
-  getSettings()
+async function refresh_balance() {
+  return getSettings()
     .then(async (settings) => {
       const { tokens, account_id } = settings;
 
       console.log('[refresh_balance]');
 
       const balance = await DataAPIClient.getBalance(tokens.access_token, account_id);
-      save('truelayerUserBalance', balance.results[0]);
+      return save('truelayerUserBalance', balance.results[0]);
     });
 }
-const MAX_TRANSACTIONS = 50;
+const MAX_TRANSACTIONS = 500;
 
-function refresh_transactions() {
-  getSettings()
+async function refresh_transactions() {
+  return getSettings()
     .then(async (settings) => {
-      let { tokens, account_id, retrieve_from } = settings;
+      const { tokens, account_id } = settings;
 
-      // limit to two weeks (default is 3 months)
-      if (!retrieve_from)
-        retrieve_from = new Date(new Date().getTime() - 1000*60*60*24*14).toISOString().substr(0,10)
-      // save current datetime
-      const new_retrieve_from = new Date().toISOString();
+      // limit to 30 days; default is 3 months
+      if (!latest_date)
+        latest_date = new Date(new Date().getTime() - 1000*60*60*24*30).toISOString().substr(0,10)
+      const now = new Date().toISOString();
 
-      console.log('Refreshing transactions from: ' + retrieve_from.substr(0,10) + ' - ' + new_retrieve_from.substr(0,10) );
+      console.log('Refreshing transactions from: ' + latest_date.substr(0,10) + ' - ' + now.substr(0,10) );
       // apparently wants YYYY-MM-DD
-      const transactions = await DataAPIClient.getTransactions(tokens.access_token, account_id, retrieve_from.substr(0,10), new_retrieve_from.substr(0,10));
-      console.log(`Got ${transactions.results.length} transactions since ${retrieve_from} (limit = ${MAX_TRANSACTIONS})`)
+      // and what about timezones that take us into tomorrow?!
+      const transactions = await DataAPIClient.getTransactions(tokens.access_token, account_id, latest_date.substr(0,10), now.substr(0,10));
+      console.log(`Got ${transactions.results.length} transactions since ${latest_date} (limit = ${MAX_TRANSACTIONS})`)
+	// latest known?
+	let latest = transactions.results.length-1
+	for ( ; latest >=0 && transactions.results[latest].transaction_id != latest_transaction_id; latest-- )
+		;
+	if (latest < 0) {
+		console.log(`could not find latest transaction ${latest_transaction_id} -keep them all`)
+		latest = transactions.results.length
+	} else {
+		console.log(`found latest transaction at index ${latest} - ignore ${transactions.results.length-latest} known transactions`)
+	}
       // reverse order
-      for (let ti=Math.min(transactions.results.length-1, MAX_TRANSACTIONS-1); ti>=0; ti--) {
+      for (let ti=Math.min(latest-1, transactions.results.length-1, MAX_TRANSACTIONS-1); ti>=0; ti--) {
         let transaction = transactions.results[ti];
         // TODO avoid re-adding the same things
-        save('truelayerUserTransactions', transaction);
+        try {
+		await save('truelayerUserTransactions', transaction);
+		latest_transaction_id = transaction.transaction_id
+		latest_date = new Date(transaction.timestamp).toISOString().substr(0,10)
+	} catch (err) {
+		console.log(`error saving transaction: ${err}`, err);
+	}
       }
-      
-      // save datetime for next refresh
-      settings.retrieve_from = new_retrieve_from;
-      setSettings(settings);
+      console.log(`done adding transactions - latest is ${latest_transaction_id}, ${latest_date}`);
     });
 }
 
