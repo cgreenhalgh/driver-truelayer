@@ -78,14 +78,12 @@ e.g.
 - handle future timezone?!
 - version datasource types
 
-- check it doesn't use credential sharing (deprecated), just 
-open banking and oauth
-
 - redirect URLs are hard-coded as https://127.0.0.1/... 
 so will only work from a local browser (not the app)
 
 - only the success flow is handled, e.g. user cancelling
 authentication isn't handled (raises exception, view times out).
+(e.g. redirect to URL w parameter `error=access_denied`)
 
 - the client secret is accessible - should be at least hidden
 as a password field.

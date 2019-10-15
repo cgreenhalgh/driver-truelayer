@@ -83,6 +83,10 @@ app.get('/ui/authenticate', function (req, res) {
         scope: permission_scopes,
         nonce: nonce(8),
         enableMock: true, // enable mock/testing provider(s)
+        enableCredentialsSharing: false, // not deprecated credential sharing
+        enableCredentialsSharingDe: false,
+        enableOauth: true, // yes, oauth
+        enableOpenBanking: true, // yes, open banking
       });
 
       // Used 'target=_blank' since TrueLayer doesn't support inner html.
