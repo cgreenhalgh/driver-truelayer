@@ -39,6 +39,7 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 
 const token_refresh_interval = 30;  // in minutes
+const DEFAULT_REFRESH_INTERVAL = 30; // in minuts
 let next_data_refresh = null;
 let latest_transaction_id = null;
 let latest_date = null;
@@ -152,8 +153,7 @@ app.get('/ui/configure', async (req, res) => {
 app.get('/ui/saveConfiguration', function (req, res) {
   const newAccount = req.query.account;
   const newRefreshInterval = req.query.refresh_interval;
-  console.log(newAccount);
-  console.log(newRefreshInterval);
+  console.log(`account ${newAccount}, refresh interval ${newRefreshInterval}`);
 
   getSettings()
     .then((settings) => {
@@ -337,12 +337,14 @@ async function validate_token() {
 async function timer_callback() {
 	await validate_token();
 	let settings = getSettings()
-	const { refresh_interval } = settings;
+	let { refresh_interval } = settings;
 
 	// check with current datetime
 	const now = new Date();
+
 	if (next_data_refresh == null ||
 		next_data_refresh < now) {
+		console.log(`${now.toISOString()} poll`)
 
         	// refresh
         	try {
@@ -356,7 +358,13 @@ async function timer_callback() {
 			console.log(`error refreshing transactions: ${err}`, err)
 		}
         	// plan next refresh
-		next_data_refresh = new Date().setMinutes(now.getMinutes() + refresh_interval);
+		if ( ! refresh_interval ) {
+			refresh_interval = DEFAULT_REFRESH_INTERVAL
+		} else {
+			refresh_interval = Number(refresh_interval)
+		}
+		next_data_refresh = new Date().setMinutes(now.getMinutes() + Number(refresh_interval));
+		console.log(`next refresh at ${next_data_refresh} (refresh_interval = ${JSON.stringify(refresh_interval)})`)
 	}
 }
 
